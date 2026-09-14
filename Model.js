@@ -67,36 +67,27 @@ function sortProcesses(list, column, ascending) {
 function systemCommand() {
   return [
     'echo "===CPU==="',
-    // CPU usage from /proc/stat (calculate delta)
-    'top -bn1 | head -5 | grep "Cpu(s)"',
-    // CPU model
-    'cat /proc/cpuinfo | grep "model name" | head -1',
-    // Cores and threads
-    'nproc',
-    'cat /proc/cpuinfo | grep -c "^processor"',
-    // Frequency
-    'cat /proc/cpuinfo | grep "cpu MHz" | head -1',
-    // Load average
-    'cat /proc/loadavg',
+    'top -bn1 2>/dev/null | head -5 | grep "Cpu(s)" || echo "Cpu(s): 0%id"',
+    'cat /proc/cpuinfo 2>/dev/null | grep "model name" | head -1 || echo "model name: Unknown"',
+    'nproc 2>/dev/null || echo 1',
+    'cat /proc/cpuinfo 2>/dev/null | grep -c "^processor" || echo 1',
+    'cat /proc/cpuinfo 2>/dev/null | grep "cpu MHz" | head -1 || echo "cpu MHz: 0"',
+    'cat /proc/loadavg 2>/dev/null || echo "0 0 0"',
     'echo "===MEM==="',
-    // Memory info
-    'free -h | grep Mem',
-    'free -h | grep Swap',
+    'free -h 2>/dev/null | grep Mem || echo "Mem: 0 0 0 0 0 0"',
+    'free -h 2>/dev/null | grep Swap || echo "Swap: 0 0 0"',
     'echo "===DISK==="',
-    // Disk usage
-    'df -h --output=target,used,size,pcent | grep -E "^/|^/home|^/boot|^/root|^/tmp|^/var|^/usr|^/opt"',
+    'df -h 2>/dev/null | grep -E "^/dev" | head -10 || true',
     'echo "===NET==="',
-    // Network interface and traffic
-    'ip route get 1.1.1.1 2>/dev/null | head -1',
-    'cat /sys/class/net/$(ip route get 1.1.1.1 2>/dev/null | awk \'{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}\' | head -1)/statistics/rx_bytes 2>/dev/null || echo 0',
-    'cat /sys/class/net/$(ip route get 1.1.1.1 2>/dev/null | awk \'{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}\' | head -1)/statistics/tx_bytes 2>/dev/null || echo 0',
-    'hostname -I 2>/dev/null | awk \'{print $1}\'',
+    'ip -o link show 2>/dev/null | awk -F": " \'{print $2}\' | grep -v lo | head -1 || echo "eth0"',
+    'cat /sys/class/net/$(ip route get 1.1.1.1 2>/dev/null | awk \'/dev/{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}\' | head -1)/statistics/rx_bytes 2>/dev/null || echo 0',
+    'cat /sys/class/net/$(ip route get 1.1.1.1 2>/dev/null | awk \'/dev/{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}\' | head -1)/statistics/tx_bytes 2>/dev/null || echo 0',
+    'hostname -I 2>/dev/null | awk \'{print $1}\' || echo ""',
     'echo "===GPU==="',
-    // GPU info (try nvidia-smi, then lspci)
-    'nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader 2>/dev/null || echo "NVIDIA_NOT_FOUND"',
-    'lspci | grep -i vga | head -1',
+    'nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader 2>/dev/null || echo "NO_NVIDIA"',
+    'lspci 2>/dev/null | grep -i vga | head -1 || echo ""',
     'echo "===UPTIME==="',
-    'uptime -p 2>/dev/null || uptime'
+    'uptime -p 2>/dev/null || uptime 2>/dev/null || echo "unknown"'
   ].join("\n")
 }
 
@@ -195,14 +186,26 @@ function parseDiskSection(raw) {
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i].trim()
     if (line === "" || line.indexOf("===") >= 0) continue
+    // df -h output: Filesystem Size Used Avail Use% Mounted
     var parts = line.split(/\s+/)
-    if (parts.length >= 4) {
-      var usage = parseFloat(parts[3]) || 0
+    if (parts.length >= 6) {
+      var usageStr = parts[4] || "0%"
+      var usage = parseFloat(usageStr) || 0
+      partitions.push({
+        mount: parts[5] || parts[0] || "",
+        used: parts[2] || "",
+        total: parts[1] || "",
+        usage: usage
+      })
+    } else if (parts.length >= 4) {
+      // Fallback for --output format
+      var usageStr2 = parts[3] || "0%"
+      var usage2 = parseFloat(usageStr2) || 0
       partitions.push({
         mount: parts[0] || "",
         used: parts[1] || "",
         total: parts[2] || "",
-        usage: usage
+        usage: usage2
       })
     }
   }
@@ -235,8 +238,7 @@ function parseGPUSection(raw) {
 
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i].trim()
-    if (line.indexOf("NVIDIA_NOT_FOUND") >= 0) {
-      // Try lspci fallback
+    if (line === "NO_NVIDIA" || line === "") {
       continue
     }
     if (line.indexOf(",") >= 0) {
@@ -248,7 +250,7 @@ function parseGPUSection(raw) {
         gpu.memory = parts[2] + " / " + parts[3]
         gpu.temp = parts[4]
       }
-    } else if (line.indexOf("VGA") >= 0 || line.indexOf("3D") >= 0) {
+    } else if (line.indexOf("VGA") >= 0 || line.indexOf("3D") >= 0 || line.indexOf("Display") >= 0) {
       // lspci fallback
       var match = line.match(/:\s*(.+?)(?:\s*\[|$)/)
       if (match) gpu.model = match[1].trim()

@@ -632,6 +632,7 @@ Panel {
 
               // CPU sparkline
               Canvas {
+                id: cpuSparkline
                 width: parent.width
                 height: Style.space(40)
                 onPaint: {
@@ -658,12 +659,7 @@ Panel {
                 }
                 Connections {
                   target: root
-                  function onCpuHistoryChanged() { canvas1.requestPaint() }
-                }
-                Canvas {
-                  id: canvas1
-                  anchors.fill: parent
-                  onPaint: parent.onPaint()
+                  function onCpuHistoryChanged() { cpuSparkline.requestPaint() }
                 }
               }
             }
@@ -1252,14 +1248,19 @@ Panel {
     id: procCollector
     command: ["sh", "-c", Model.processCommand()]
     running: false
-    onRunningChanged: if (!running && exitCode === 0) {
-      var result = Model.parseProcesses(stdout.text)
-      root.processList = result
-      root.cpuHistory.push(root.cpuInfo.usage || 0)
-      if (root.cpuHistory.length > 60) root.cpuHistory.shift()
-      root.cpuHistory = root.cpuHistory
+    onExited: function(exitCode) {
+      // stdout already handled by StdioCollector
     }
-    stdout: SplitParser { onRead: function(line) {} }
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: function(text) {
+        var result = Model.parseProcesses(text || "")
+        root.processList = result
+        root.cpuHistory.push(root.cpuInfo.usage || 0)
+        if (root.cpuHistory.length > 60) root.cpuHistory.shift()
+        root.cpuHistory = root.cpuHistory
+      }
+    }
   }
 
   // System info collector
@@ -1267,16 +1268,18 @@ Panel {
     id: sysCollector
     command: ["sh", "-c", Model.systemCommand()]
     running: false
-    onRunningChanged: if (!running && exitCode === 0) {
-      var data = Model.parseSystemInfo(stdout.text)
-      root.cpuInfo = data.cpu || {}
-      root.memoryInfo = data.memory || {}
-      root.diskInfo = data.disk || {}
-      root.networkInfo = data.network || {}
-      root.gpuInfo = data.gpu || {}
-      root.uptimeInfo = data.uptime || ""
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: function(text) {
+        var data = Model.parseSystemInfo(text || "")
+        root.cpuInfo = data.cpu || {}
+        root.memoryInfo = data.memory || {}
+        root.diskInfo = data.disk || {}
+        root.networkInfo = data.network || {}
+        root.gpuInfo = data.gpu || {}
+        root.uptimeInfo = data.uptime || ""
+      }
     }
-    stdout: SplitParser { onRead: function(line) {} }
   }
 
   // Service collector
@@ -1284,10 +1287,12 @@ Panel {
     id: svcCollector
     command: ["sh", "-c", Model.serviceCommand()]
     running: false
-    onRunningChanged: if (!running && exitCode === 0) {
-      root.serviceList = Model.parseServices(stdout.text)
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: function(text) {
+        root.serviceList = Model.parseServices(text || "")
+      }
     }
-    stdout: SplitParser { onRead: function(line) {} }
   }
 
   // Agent collector
@@ -1295,10 +1300,12 @@ Panel {
     id: agentCollector
     command: ["sh", "-c", Model.agentCommand()]
     running: false
-    onRunningChanged: if (!running && exitCode === 0) {
-      root.agentSessions = Model.parseAgents(stdout.text)
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: function(text) {
+        root.agentSessions = Model.parseAgents(text || "")
+      }
     }
-    stdout: SplitParser { onRead: function(line) {} }
   }
 
   // Process action (kill/signal)
@@ -1307,10 +1314,9 @@ Panel {
     command: ["sh", "-c", target]
     property string target: ""
     running: false
-    onRunningChanged: if (!running) {
+    onExited: function(exitCode) {
       Qt.callLater(function() { procCollector.running = true })
     }
-    stdout: SplitParser { onRead: function(line) {} }
   }
 
   // Service action
@@ -1319,7 +1325,6 @@ Panel {
     command: ["pkexec", "sh", "-c", target]
     property string target: ""
     running: false
-    stdout: SplitParser { onRead: function(line) {} }
   }
 
   // Agent chat send
@@ -1328,13 +1333,15 @@ Panel {
     command: ["sh", "-c", "echo " + target + " | xargs -I{} timeout 5 claude-cli --print '{}' 2>/dev/null || echo 'Agent not available'"]
     property string target: ""
     running: false
-    onRunningChanged: if (!running && exitCode === 0) {
-      var response = stdout.text.trim()
-      if (response !== "") {
-        root.agentChatMessages.push({ "role": "agent", "text": response, "time": Date.now() })
-        root.agentChatMessages = root.agentChatMessages
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: function(text) {
+        var response = (text || "").trim()
+        if (response !== "") {
+          root.agentChatMessages.push({ "role": "agent", "text": response, "time": Date.now() })
+          root.agentChatMessages = root.agentChatMessages
+        }
       }
     }
-    stdout: SplitParser { onRead: function(line) {} }
   }
 }
