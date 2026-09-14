@@ -300,7 +300,7 @@ Panel {
                     text: root.tabLabels[modelData] || modelData
                     color: root.activeTab === modelData ? root.foreground : root.dim
                     font.family: root.fontFamily
-                    font.pixelSize: Style.font.small
+                    font.pixelSize: Style.font.caption
                     font.bold: root.activeTab === modelData
                   }
                 }
@@ -409,7 +409,7 @@ Panel {
                       text: root.processSortAsc ? "\u{25B2}" : "\u{25BC}"
                       color: root.dim
                       font.family: root.fontFamily
-                      font.pixelSize: Style.font.small - 2
+                      font.pixelSize: Style.font.caption - 2
                     }
                   }
 
@@ -769,7 +769,7 @@ Panel {
                       text: (modelData.used || "") + " / " + (modelData.total || "") + " (" + (modelData.usage || 0).toFixed(0) + "%)"
                       color: root.foreground
                       font.family: root.fontFamily
-                      font.pixelSize: Style.font.small
+                      font.pixelSize: Style.font.caption
                     }
                   }
                 }
@@ -1133,7 +1133,7 @@ Panel {
                           text: modelData.role === "user" ? "You" : "Agent"
                           color: modelData.role === "user" ? root.accent : root.dim
                           font.family: root.fontFamily
-                          font.pixelSize: Style.font.small
+                          font.pixelSize: Style.font.caption
                           font.bold: true
                         }
                         Text {
