@@ -109,15 +109,15 @@ Panel {
   // ── Process actions ────────────────────────────────────────────────
   function endProcess(pid) {
     if (pid > 0) {
-      processAction.command = ["sh", "-c", "kill " + pid]
-      processAction.running = true
+      processKillProc.command = ["kill", String(pid)]
+      processKillProc.running = true
     }
   }
 
   function killProcess(pid) {
     if (pid > 0) {
-      processAction.command = ["sh", "-c", "kill -9 " + pid]
-      processAction.running = true
+      processKillProc.command = ["kill", "-9", String(pid)]
+      processKillProc.running = true
     }
   }
 
@@ -538,6 +538,15 @@ Panel {
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               horizontalAlignment: Text.AlignRight
+            }
+
+            Text {
+              width: parent.width
+              text: "x = end process | Del = force kill | Click to select"
+              color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.35)
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              horizontalAlignment: Text.AlignHCenter
             }
           }
 
@@ -1226,7 +1235,7 @@ Panel {
 
   Process {
     id: sysCollector
-    command: ["sh", "-c", "echo \"===CPU===\"; top -bn1 2>/dev/null | head -5 | grep \"Cpu(s)\" || echo \"Cpu(s): 0%id\"; cat /proc/cpuinfo 2>/dev/null | grep \"model name\" | head -1 || echo \"model name: Unknown\"; nproc 2>/dev/null || echo 1; cat /proc/cpuinfo 2>/dev/null | grep -c \"^processor\" || echo 1; cat /proc/cpuinfo 2>/dev/null | grep \"cpu MHz\" | head -1 || echo \"cpu MHz: 0\"; cat /proc/loadavg 2>/dev/null || echo \"0 0 0\"; echo \"===MEM===\"; free -h 2>/dev/null | grep Mem || echo \"Mem: 0 0 0 0 0 0\"; free -h 2>/dev/null | grep Swap || echo \"Swap: 0 0 0\"; echo \"===DISK===\"; df -h 2>/dev/null | grep -E \"^/dev\" | head -10 || true; echo \"===NET===\"; ip -o link show 2>/dev/null | awk -F\": \" '{print $2}' | grep -v lo | head -1 || echo \"eth0\"; cat /sys/class/net/$(ip route get 1.1.1.1 2>/dev/null | awk '/dev/{for(i=1;i<=NF;i++) if($i==\"dev\") print $(i+1)}' | head -1)/statistics/rx_bytes 2>/dev/null || echo 0; cat /sys/class/net/$(ip route get 1.1.1.1 2>/dev/null | awk '/dev/{for(i=1;i<=NF;i++) if($i==\"dev\") print $(i+1)}' | head -1)/statistics/tx_bytes 2>/dev/null || echo 0; hostname -I 2>/dev/null | awk '{print $1}' || echo \"\"; echo \"===GPU===\"; nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader 2>/dev/null || echo \"NO_NVIDIA\"; lspci 2>/dev/null | grep -i vga | head -1 || echo \"\"; echo \"===UPTIME===\"; uptime -p 2>/dev/null || uptime 2>/dev/null || echo \"unknown\""]
+    command: ["sh", "-c", ". ~/.config/omarchy/plugins/lyubo119.task-manager/system-info.sh"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -1254,7 +1263,7 @@ Panel {
 
   Process {
     id: agentCollector
-    command: ["sh", "-c", "echo \"===CLAUDE===\"; ls -t ~/.claude/projects/ 2>/dev/null | head -5; ps aux 2>/dev/null | grep -E \"claude|codex\" | grep -v grep | head -10; echo \"===SESSIONS===\"; find ~/.claude -name \"*.jsonl\" -newer /tmp -mmin -60 2>/dev/null | head -5; echo \"===PROCESSES===\"; ps -eo pid,comm,pcpu,pmem --sort=-pcpu | grep -iE \"claude|codex|node.*claude|python.*agent\" | head -10"]
+    command: ["sh", "-c", ". ~/.config/omarchy/plugins/lyubo119.task-manager/agent-info.sh"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -1264,7 +1273,7 @@ Panel {
   }
 
   Process {
-    id: processAction
+    id: processKillProc
     stdout: StdioCollector { waitForEnd: true }
     onRunningChanged: if (!running) refreshProcesses()
   }
