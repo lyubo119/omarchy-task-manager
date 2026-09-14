@@ -11,7 +11,6 @@ Panel {
   id: root
   moduleName: "lyubo119.task-manager"
   ipcTarget: "lyubo119.task-manager"
-  manageIpc: false
 
   // ── Theme ──────────────────────────────────────────────────────────
   readonly property color foreground: bar ? bar.foreground : Color.foreground
@@ -79,16 +78,6 @@ Panel {
     processSelectedIndex = -1
     serviceSelectedIndex = -1
     agentSelectedIndex = -1
-  }
-
-  // ── IPC ────────────────────────────────────────────────────────────
-  IpcHandler {
-    target: root.ipcTarget
-    function open(): void { root.open() }
-    function close(): void { root.close() }
-    function toggle(): void { root.toggle() }
-    function refresh(): void { root.refreshAll() }
-    function tab(name): void { root.selectTab(String(name || "processes")) }
   }
 
   // ── Data refresh ───────────────────────────────────────────────────
@@ -190,8 +179,6 @@ Panel {
   visible: true
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
-
-  Component.onCompleted: refreshAll()
 
   onOpenedChanged: if (opened) {
     cursorActive = false
