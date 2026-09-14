@@ -94,10 +94,10 @@ Panel {
   // ── Data refresh ───────────────────────────────────────────────────
   function refreshAll() {
     nowMs = Date.now()
-    procCollector.running = true
-    sysCollector.running = true
-    if (activeTab === "services") svcCollector.running = true
-    if (activeTab === "agents") agentCollector.running = true
+    if (!procCollector.running) procCollector.running = true
+    if (!sysCollector.running) sysCollector.running = true
+    if (activeTab === "services" && !svcCollector.running) svcCollector.running = true
+    if (activeTab === "agents" && !agentCollector.running) agentCollector.running = true
   }
 
   // ── Process actions ────────────────────────────────────────────────
@@ -190,6 +190,8 @@ Panel {
   visible: true
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
+
+  Component.onCompleted: refreshAll()
 
   onOpenedChanged: if (opened) {
     cursorActive = false
@@ -1247,13 +1249,9 @@ Panel {
   Process {
     id: procCollector
     command: ["sh", "-c", Model.processCommand()]
-    running: false
-    onExited: function(exitCode) {
-      // stdout already handled by StdioCollector
-    }
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: function(text) {
+      onStreamFinished: {
         var result = Model.parseProcesses(text || "")
         root.processList = result
         root.cpuHistory.push(root.cpuInfo.usage || 0)
@@ -1267,10 +1265,9 @@ Panel {
   Process {
     id: sysCollector
     command: ["sh", "-c", Model.systemCommand()]
-    running: false
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: function(text) {
+      onStreamFinished: {
         var data = Model.parseSystemInfo(text || "")
         root.cpuInfo = data.cpu || {}
         root.memoryInfo = data.memory || {}
@@ -1286,10 +1283,9 @@ Panel {
   Process {
     id: svcCollector
     command: ["sh", "-c", Model.serviceCommand()]
-    running: false
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: function(text) {
+      onStreamFinished: {
         root.serviceList = Model.parseServices(text || "")
       }
     }
@@ -1299,10 +1295,9 @@ Panel {
   Process {
     id: agentCollector
     command: ["sh", "-c", Model.agentCommand()]
-    running: false
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: function(text) {
+      onStreamFinished: {
         root.agentSessions = Model.parseAgents(text || "")
       }
     }
@@ -1313,8 +1308,7 @@ Panel {
     id: processAction
     command: ["sh", "-c", target]
     property string target: ""
-    running: false
-    onExited: function(exitCode) {
+    onExited: {
       Qt.callLater(function() { procCollector.running = true })
     }
   }
@@ -1324,7 +1318,6 @@ Panel {
     id: serviceAction
     command: ["pkexec", "sh", "-c", target]
     property string target: ""
-    running: false
   }
 
   // Agent chat send
@@ -1332,10 +1325,9 @@ Panel {
     id: agentChatSend
     command: ["sh", "-c", "echo " + target + " | xargs -I{} timeout 5 claude-cli --print '{}' 2>/dev/null || echo 'Agent not available'"]
     property string target: ""
-    running: false
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: function(text) {
+      onStreamFinished: {
         var response = (text || "").trim()
         if (response !== "") {
           root.agentChatMessages.push({ "role": "agent", "text": response, "time": Date.now() })
