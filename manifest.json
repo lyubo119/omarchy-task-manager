@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "lyubo119.task-manager",
+  "name": "Task Manager",
+  "version": "1.0.0",
+  "author": "lyubo119",
+  "license": "MIT",
+  "description": "Windows Task Manager-style system monitor for Omarchy with processes, performance stats, services, and agent management",
+  "kinds": [
+    "bar-widget"
+  ],
+  "activation": "on-demand",
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Task Manager",
+    "description": "System monitor with processes, CPU/memory/disk/network stats, services, and agent chat",
+    "category": "System",
+    "aliases": ["task-manager", "processes", "system-monitor"],
+    "allowMultiple": false,
+    "defaults": {
+      "refreshIntervalMs": 2000,
+      "defaultTab": "processes"
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalMs",
+        "type": "integer",
+        "label": "Refresh interval (ms)",
+        "min": 500,
+        "max": 10000,
+        "step": 500,
+        "defaultValue": 2000
+      },
+      {
+        "key": "defaultTab",
+        "type": "enum",
+        "label": "Default tab",
+        "options": ["processes", "performance", "services", "agents"],
+        "defaultValue": "processes"
+      }
+    ]
+  }
+}
