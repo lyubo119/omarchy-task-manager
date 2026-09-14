@@ -11,17 +11,17 @@ Panel {
   id: root
   moduleName: "lyubo119.task-manager"
   ipcTarget: "lyubo119.task-manager"
+  manageIpc: false
 
   // ── Theme ──────────────────────────────────────────────────────────
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(foreground, 1.55)
-  readonly property color surface: Color.popups.background
   readonly property color accent: Color.accent
   readonly property color urgent: bar ? bar.urgent : Color.urgent
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
   // ── Tab state ──────────────────────────────────────────────────────
-  property string activeTab: setting("defaultTab", "processes")
+  property string activeTab: "processes"
   readonly property var tabs: ["processes", "performance", "services", "agents"]
   readonly property var tabLabels: ({
     "processes": "Processes",
@@ -50,7 +50,7 @@ Panel {
   property var diskInfo: ({})
   property var networkInfo: ({})
   property var gpuInfo: ({})
-  property var uptimeInfo: ""
+  property string uptimeInfo: ""
   property var cpuHistory: []
   property var memHistory: []
 
@@ -65,14 +65,17 @@ Panel {
   property string agentChatInput: ""
   property var agentChatMessages: []
 
-  // ── Refresh ────────────────────────────────────────────────────────
-  property double nowMs: Date.now()
-
-  function setting(name, fallback) {
-    var value = settings ? settings[name] : undefined
-    return value === undefined || value === null ? fallback : value
+  // ── IPC handler (manageIpc: false so we own it) ────────────────────
+  IpcHandler {
+    target: "lyubo119.task-manager"
+    function open() { root.open() }
+    function close() { root.close() }
+    function toggle() { root.toggle() }
+    function show() { root.open() }
+    function hide() { root.close() }
   }
 
+  // ── Helpers ────────────────────────────────────────────────────────
   function selectTab(tab) {
     activeTab = tab
     processSelectedIndex = -1
@@ -80,47 +83,61 @@ Panel {
     agentSelectedIndex = -1
   }
 
-  // ── Data refresh ───────────────────────────────────────────────────
-  function refreshAll() {
-    nowMs = Date.now()
+  function refreshProcesses() {
     if (!procCollector.running) procCollector.running = true
+  }
+
+  function refreshSystem() {
     if (!sysCollector.running) sysCollector.running = true
-    if (activeTab === "services" && !svcCollector.running) svcCollector.running = true
-    if (activeTab === "agents" && !agentCollector.running) agentCollector.running = true
+  }
+
+  function refreshServices() {
+    if (!svcCollector.running) svcCollector.running = true
+  }
+
+  function refreshAgents() {
+    if (!agentCollector.running) agentCollector.running = true
+  }
+
+  function refreshAll() {
+    refreshProcesses()
+    refreshSystem()
+    if (activeTab === "services") refreshServices()
+    if (activeTab === "agents") refreshAgents()
   }
 
   // ── Process actions ────────────────────────────────────────────────
   function endProcess(pid) {
     if (pid > 0) {
-      processAction.target = "kill " + pid
+      processAction.command = ["sh", "-c", "kill " + pid]
       processAction.running = true
     }
   }
 
   function killProcess(pid) {
     if (pid > 0) {
-      processAction.target = "kill -9 " + pid
+      processAction.command = ["sh", "-c", "kill -9 " + pid]
       processAction.running = true
     }
   }
 
   function openTerminal(pid) {
     if (root.bar) {
-      var cmd = "alacritty --hold -e sh -c 'echo PID:" + pid + "; cat /proc/" + pid + "/status 2>/dev/null; echo; echo Press enter to close; read'"
-      root.bar.run(cmd)
+      root.bar.run("alacritty --hold -e sh -c 'echo PID:" + pid + "; cat /proc/" + pid + "/status 2>/dev/null; echo; echo Press enter to close; read'")
     }
   }
 
   // ── Service actions ────────────────────────────────────────────────
   function toggleService(name, enable) {
-    serviceAction.target = (enable ? "systemctl enable --now " : "systemctl disable --now ") + name
+    serviceAction.command = ["pkexec", "sh", "-c", enable ? "systemctl enable --now " + name : "systemctl disable --now " + name]
     serviceAction.running = true
-    Qt.callLater(function() { svcCollector.running = true })
+    Qt.callLater(refreshServices)
   }
 
   function restartService(name) {
-    serviceAction.target = "systemctl restart " + name
+    serviceAction.command = ["pkexec", "sh", "-c", "systemctl restart " + name]
     serviceAction.running = true
+    Qt.callLater(refreshServices)
   }
 
   // ── Agent chat ─────────────────────────────────────────────────────
@@ -130,9 +147,6 @@ Panel {
     agentChatMessages.push({ "role": "user", "text": msg, "time": Date.now() })
     agentChatInput = ""
     agentChatMessages = agentChatMessages
-    // Send via IPC to Claude Code session if available
-    agentChatSend.target = msg
-    agentChatSend.running = true
   }
 
   // ── Keyboard ───────────────────────────────────────────────────────
@@ -176,9 +190,10 @@ Panel {
   // UI
   // ══════════════════════════════════════════════════════════════════════
 
-  visible: true
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
+
+  Component.onCompleted: refreshAll()
 
   onOpenedChanged: if (opened) {
     cursorActive = false
@@ -207,17 +222,10 @@ Panel {
 
   // ── Timer ──────────────────────────────────────────────────────────
   Timer {
-    interval: setting("refreshIntervalMs", 2000)
+    interval: 2000
     running: root.opened
     repeat: true
     onTriggered: refreshAll()
-  }
-
-  Timer {
-    interval: 30000
-    running: root.opened
-    repeat: true
-    onTriggered: root.nowMs = Date.now()
   }
 
   // ══════════════════════════════════════════════════════════════════════
@@ -314,7 +322,6 @@ Panel {
             }
           }
 
-          // ── Tab separator ───────────────────────────────────────
           Rectangle {
             width: parent.width
             height: 1
@@ -330,40 +337,35 @@ Panel {
             spacing: Style.space(6)
 
             // Filter bar
-            Row {
+            Rectangle {
               width: parent.width
-              spacing: Style.space(6)
+              height: Style.space(32)
+              radius: Style.cornerRadius
+              color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.05)
+              border.width: 1
+              border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.1)
 
-              Rectangle {
-                width: parent.width
-                height: Style.space(32)
-                radius: Style.cornerRadius
-                color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.05)
-                border.width: 1
-                border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.1)
+              TextInput {
+                id: filterInput
+                anchors.fill: parent
+                anchors.leftMargin: Style.space(10)
+                anchors.rightMargin: Style.space(10)
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                verticalAlignment: Text.AlignVCenter
+                clip: true
+                text: root.processFilter
+                onTextChanged: root.processFilter = text
 
-                TextInput {
-                  id: filterInput
-                  anchors.fill: parent
-                  anchors.leftMargin: Style.space(10)
-                  anchors.rightMargin: Style.space(10)
-                  color: root.foreground
+                Text {
+                  visible: filterInput.text === "" && !filterInput.activeFocus
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "\u{F422} Filter processes..."
+                  color: root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.bodySmall
-                  verticalAlignment: Text.AlignVCenter
-                  clip: true
-                  text: root.processFilter
-                  onTextChanged: root.processFilter = text
-
-                  Text {
-                    visible: filterInput.text === "" && !filterInput.activeFocus
-                    anchors.left: parent.left
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "\u{F422} Filter processes..."
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
-                  }
                 }
               }
             }
@@ -428,7 +430,6 @@ Panel {
               }
             }
 
-            // Separator
             Rectangle {
               width: parent.width
               height: 1
@@ -476,7 +477,7 @@ Panel {
                     Text {
                       width: parent.width * 1 / 8
                       anchors.verticalCenter: parent.verticalCenter
-                      text: modelData.pid || ""
+                      text: String(modelData.pid || "")
                       color: root.dim
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.bodySmall
@@ -518,7 +519,6 @@ Panel {
                 }
               }
 
-              // Empty state
               Text {
                 visible: root.processList.length === 0
                 width: parent.width
@@ -531,7 +531,6 @@ Panel {
               }
             }
 
-            // Process count
             Text {
               width: parent.width
               text: root.processList.length + " processes"
@@ -550,7 +549,6 @@ Panel {
             width: parent.width
             spacing: Style.space(12)
 
-            // CPU Section
             PanelSectionHeader {
               width: parent.width
               text: "CPU"
@@ -562,7 +560,6 @@ Panel {
               width: parent.width
               spacing: Style.space(6)
 
-              // CPU bar
               Row {
                 width: parent.width
                 spacing: Style.space(8)
@@ -587,7 +584,6 @@ Panel {
                     height: parent.height
                     radius: parent.radius
                     color: (root.cpuInfo.usage || 0) > 80 ? root.urgent : root.accent
-
                     Behavior on width { NumberAnimation { duration: 300 } }
                   }
 
@@ -602,7 +598,6 @@ Panel {
                 }
               }
 
-              // CPU details
               Grid {
                 width: parent.width
                 columns: 2
@@ -619,7 +614,6 @@ Panel {
                 Text { text: root.cpuInfo.loadAvg || "—"; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
               }
 
-              // CPU sparkline
               Canvas {
                 id: cpuSparkline
                 width: parent.width
@@ -639,7 +633,6 @@ Panel {
                     else ctx.lineTo(x, y)
                   }
                   ctx.stroke()
-                  // Fill under
                   ctx.lineTo(width, height)
                   ctx.lineTo(0, height)
                   ctx.closePath()
@@ -653,7 +646,6 @@ Panel {
               }
             }
 
-            // Memory Section
             PanelSectionHeader {
               width: parent.width
               text: "MEMORY"
@@ -665,7 +657,6 @@ Panel {
               width: parent.width
               spacing: Style.space(6)
 
-              // Memory bar
               Row {
                 width: parent.width
                 spacing: Style.space(8)
@@ -689,7 +680,6 @@ Panel {
                     height: parent.height
                     radius: parent.radius
                     color: (root.memoryInfo.usage || 0) > 85 ? root.urgent : root.accent
-
                     Behavior on width { NumberAnimation { duration: 300 } }
                   }
 
@@ -721,7 +711,6 @@ Panel {
               }
             }
 
-            // Disk Section
             PanelSectionHeader {
               width: parent.width
               text: "DISK"
@@ -784,7 +773,6 @@ Panel {
               }
             }
 
-            // Network Section
             PanelSectionHeader {
               width: parent.width
               text: "NETWORK"
@@ -808,7 +796,6 @@ Panel {
               Text { text: root.networkInfo.ip || "—"; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
             }
 
-            // GPU Section
             PanelSectionHeader {
               visible: !!root.gpuInfo.model
               width: parent.width
@@ -834,7 +821,6 @@ Panel {
               Text { text: root.gpuInfo.temp || "—"; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
             }
 
-            // Uptime
             PanelSeparator { width: parent.width; foreground: root.foreground }
             Text {
               width: parent.width
@@ -853,7 +839,6 @@ Panel {
             width: parent.width
             spacing: Style.space(6)
 
-            // Filter
             Rectangle {
               width: parent.width
               height: Style.space(32)
@@ -886,7 +871,6 @@ Panel {
               }
             }
 
-            // Service headers
             Row {
               width: parent.width
               Rectangle { width: parent.width * 0.4; height: Style.space(28); color: "transparent"
@@ -902,7 +886,6 @@ Panel {
 
             Rectangle { width: parent.width; height: 1; color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.1) }
 
-            // Service list
             Column {
               width: parent.width
               spacing: 0
@@ -988,7 +971,6 @@ Panel {
             width: parent.width
             spacing: Style.space(8)
 
-            // Agent header
             PanelSectionHeader {
               width: parent.width
               text: "ACTIVE AGENTS"
@@ -996,7 +978,6 @@ Panel {
               fontFamily: root.fontFamily
             }
 
-            // Agent list
             Column {
               width: parent.width
               spacing: Style.space(4)
@@ -1023,7 +1004,6 @@ Panel {
                     anchors.margins: Style.space(8)
                     spacing: Style.space(8)
 
-                    // Status indicator
                     Rectangle {
                       width: Style.space(10)
                       height: Style.space(10)
@@ -1077,7 +1057,6 @@ Panel {
               }
             }
 
-            // Chat section
             PanelSeparator { width: parent.width; foreground: root.foreground }
 
             PanelSectionHeader {
@@ -1087,7 +1066,6 @@ Panel {
               fontFamily: root.fontFamily
             }
 
-            // Chat messages
             Rectangle {
               width: parent.width
               height: Style.space(160)
@@ -1163,7 +1141,6 @@ Panel {
               }
             }
 
-            // Chat input
             Rectangle {
               width: parent.width
               height: Style.space(36)
@@ -1229,13 +1206,12 @@ Panel {
   }
 
   // ══════════════════════════════════════════════════════════════════════
-  // DATA COLLECTION PROCESSES
+  // DATA COLLECTION - Using hardcoded commands like the monitor plugin
   // ══════════════════════════════════════════════════════════════════════
 
-  // Process collector
   Process {
     id: procCollector
-    command: ["sh", "-c", Model.processCommand()]
+    command: ["sh", "-c", "ps -eo pid,pcpu,pmem,stat,comm --sort=-pcpu | head -200"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -1248,10 +1224,9 @@ Panel {
     }
   }
 
-  // System info collector
   Process {
     id: sysCollector
-    command: ["sh", "-c", Model.systemCommand()]
+    command: ["sh", "-c", "echo \"===CPU===\"; top -bn1 2>/dev/null | head -5 | grep \"Cpu(s)\" || echo \"Cpu(s): 0%id\"; cat /proc/cpuinfo 2>/dev/null | grep \"model name\" | head -1 || echo \"model name: Unknown\"; nproc 2>/dev/null || echo 1; cat /proc/cpuinfo 2>/dev/null | grep -c \"^processor\" || echo 1; cat /proc/cpuinfo 2>/dev/null | grep \"cpu MHz\" | head -1 || echo \"cpu MHz: 0\"; cat /proc/loadavg 2>/dev/null || echo \"0 0 0\"; echo \"===MEM===\"; free -h 2>/dev/null | grep Mem || echo \"Mem: 0 0 0 0 0 0\"; free -h 2>/dev/null | grep Swap || echo \"Swap: 0 0 0\"; echo \"===DISK===\"; df -h 2>/dev/null | grep -E \"^/dev\" | head -10 || true; echo \"===NET===\"; ip -o link show 2>/dev/null | awk -F\": \" '{print $2}' | grep -v lo | head -1 || echo \"eth0\"; cat /sys/class/net/$(ip route get 1.1.1.1 2>/dev/null | awk '/dev/{for(i=1;i<=NF;i++) if($i==\"dev\") print $(i+1)}' | head -1)/statistics/rx_bytes 2>/dev/null || echo 0; cat /sys/class/net/$(ip route get 1.1.1.1 2>/dev/null | awk '/dev/{for(i=1;i<=NF;i++) if($i==\"dev\") print $(i+1)}' | head -1)/statistics/tx_bytes 2>/dev/null || echo 0; hostname -I 2>/dev/null | awk '{print $1}' || echo \"\"; echo \"===GPU===\"; nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader 2>/dev/null || echo \"NO_NVIDIA\"; lspci 2>/dev/null | grep -i vga | head -1 || echo \"\"; echo \"===UPTIME===\"; uptime -p 2>/dev/null || uptime 2>/dev/null || echo \"unknown\""]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -1266,10 +1241,9 @@ Panel {
     }
   }
 
-  // Service collector
   Process {
     id: svcCollector
-    command: ["sh", "-c", Model.serviceCommand()]
+    command: ["sh", "-c", "systemctl list-units --type=service --all --no-pager --no-legend 2>/dev/null | head -150"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -1278,10 +1252,9 @@ Panel {
     }
   }
 
-  // Agent collector
   Process {
     id: agentCollector
-    command: ["sh", "-c", Model.agentCommand()]
+    command: ["sh", "-c", "echo \"===CLAUDE===\"; ls -t ~/.claude/projects/ 2>/dev/null | head -5; ps aux 2>/dev/null | grep -E \"claude|codex\" | grep -v grep | head -10; echo \"===SESSIONS===\"; find ~/.claude -name \"*.jsonl\" -newer /tmp -mmin -60 2>/dev/null | head -5; echo \"===PROCESSES===\"; ps -eo pid,comm,pcpu,pmem --sort=-pcpu | grep -iE \"claude|codex|node.*claude|python.*agent\" | head -10"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -1290,24 +1263,18 @@ Panel {
     }
   }
 
-  // Process action (kill/signal)
   Process {
     id: processAction
-    command: ["sh", "-c", target]
-    property string target: ""
-    onExited: {
-      Qt.callLater(function() { procCollector.running = true })
-    }
+    stdout: StdioCollector { waitForEnd: true }
+    onRunningChanged: if (!running) refreshProcesses()
   }
 
-  // Service action
   Process {
     id: serviceAction
-    command: ["pkexec", "sh", "-c", target]
-    property string target: ""
+    stdout: StdioCollector { waitForEnd: true }
+    onRunningChanged: if (!running) refreshServices()
   }
 
-  // Agent chat send
   Process {
     id: agentChatSend
     command: ["sh", "-c", "echo " + target + " | xargs -I{} timeout 5 claude-cli --print '{}' 2>/dev/null || echo 'Agent not available'"]
